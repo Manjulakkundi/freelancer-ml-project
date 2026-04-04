@@ -28,6 +28,18 @@ SUCCESS_FEATURES = [
     'budget_ratio'
 ]
 
+FAKE_FEATURES = [
+    'profile_completeness',
+    'total_skills',
+    'avg_rating',
+    'total_reviews',
+    'total_projects',
+    'account_age_days',
+    'portfolio_items',
+    'budget_ratio',
+    'has_certifications'
+]
+
 # =========================
 # LOAD MODELS
 # =========================
@@ -59,32 +71,33 @@ def normalize_parameters(params, model_type):
     if model_type == "success_prediction":
         if 'completion_rate' in normalized and normalized['completion_rate'] > 1:
             normalized['completion_rate'] /= 100.0
-
         if 'on_time_delivery_rate' in normalized and normalized['on_time_delivery_rate'] > 1:
             normalized['on_time_delivery_rate'] /= 100.0
-
         if 'skill_match_score' in normalized and normalized['skill_match_score'] > 1:
             normalized['skill_match_score'] /= 100.0
-
         if 'profile_completeness' in normalized and normalized['profile_completeness'] > 1:
             normalized['profile_completeness'] /= 100.0
-
         if 'budget_ratio' in normalized and normalized['budget_ratio'] > 1:
             normalized['budget_ratio'] /= 100.0
 
     elif model_type == "fake_profile_detection":
         if 'profile_completeness' in normalized and normalized['profile_completeness'] > 1:
             normalized['profile_completeness'] /= 100.0
+        if 'budget_ratio' in normalized and normalized['budget_ratio'] > 1:
+            normalized['budget_ratio'] /= 100.0
 
     return normalized
 
 
 # =========================
-# VALIDATION FUNCTION
+# VALIDATION FUNCTIONS
 # =========================
 def validate_success_features(params):
-    """Check all required features are present"""
     missing = [f for f in SUCCESS_FEATURES if f not in params]
+    return missing
+
+def validate_fake_features(params):
+    missing = [f for f in FAKE_FEATURES if f not in params]
     return missing
 
 
@@ -126,7 +139,6 @@ def ml_predict():
 
         if model_type == "success_prediction":
 
-            # ✅ Validate all required features are present
             missing = validate_success_features(parameters)
             if missing:
                 return jsonify({
@@ -136,8 +148,6 @@ def ml_predict():
                 }), 400
 
             normalized_params = normalize_parameters(parameters, "success_prediction")
-
-            # ✅ Only pass the exact features the model was trained on (in correct order)
             ordered_params = {f: normalized_params[f] for f in SUCCESS_FEATURES}
 
             probability = success_predictor.predict_success_probability(ordered_params)
@@ -164,8 +174,19 @@ def ml_predict():
             })
 
         elif model_type == "fake_profile_detection":
+
+            missing = validate_fake_features(parameters)
+            if missing:
+                return jsonify({
+                    'success': False,
+                    'error': f'Missing required fields: {missing}',
+                    'required_fields': FAKE_FEATURES
+                }), 400
+
             normalized_params = normalize_parameters(parameters, "fake_profile_detection")
-            result = fake_detector.detect_fake(normalized_params)
+            ordered_params = {f: normalized_params[f] for f in FAKE_FEATURES}
+
+            result = fake_detector.detect_fake(ordered_params)
 
             return jsonify({
                 'success': True,
@@ -176,7 +197,7 @@ def ml_predict():
                     'risk_level': result['risk_level'],
                     'red_flags': result['red_flags']
                 },
-                'input_parameters': normalized_params
+                'input_parameters': ordered_params
             })
 
         else:
@@ -201,7 +222,6 @@ def predict_success():
     try:
         data = request.json
 
-        # ✅ Validate required features
         missing = validate_success_features(data)
         if missing:
             return jsonify({
@@ -211,8 +231,6 @@ def predict_success():
             }), 400
 
         normalized = normalize_parameters(data, "success_prediction")
-
-        # ✅ Only pass exact features in correct order
         ordered_params = {f: normalized[f] for f in SUCCESS_FEATURES}
 
         probability = success_predictor.predict_success_probability(ordered_params)
@@ -247,8 +265,19 @@ def predict_success():
 def detect_fake():
     try:
         data = request.json
+
+        missing = validate_fake_features(data)
+        if missing:
+            return jsonify({
+                'success': False,
+                'error': f'Missing required fields: {missing}',
+                'required_fields': FAKE_FEATURES
+            }), 400
+
         normalized = normalize_parameters(data, "fake_profile_detection")
-        result = fake_detector.detect_fake(normalized)
+        ordered_params = {f: normalized[f] for f in FAKE_FEATURES}
+
+        result = fake_detector.detect_fake(ordered_params)
 
         return jsonify({
             'success': True,
@@ -264,7 +293,7 @@ def detect_fake():
         }), 400
 
 
-# ✅ New route to tell users what fields are required
+# Shows exactly what fields are required for each model
 @app.route('/api/fields', methods=['GET'])
 def get_required_fields():
     return jsonify({
@@ -281,7 +310,21 @@ def get_required_fields():
                 'budget_ratio': 95
             }
         },
-        'note': 'completion_rate, on_time_delivery_rate, skill_match_score, profile_completeness, budget_ratio can be 0-100 or 0-1'
+        'fake_profile_detection': {
+            'required_fields': FAKE_FEATURES,
+            'example': {
+                'profile_completeness': 20,
+                'total_skills': 35,
+                'avg_rating': 5.0,
+                'total_reviews': 1,
+                'total_projects': 0,
+                'account_age_days': 15,
+                'portfolio_items': 0,
+                'budget_ratio': 25,
+                'has_certifications': 0
+            }
+        },
+        'note': 'profile_completeness and budget_ratio can be 0-100 or 0-1, both are handled automatically'
     })
 
 
