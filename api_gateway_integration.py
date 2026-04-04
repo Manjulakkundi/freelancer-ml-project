@@ -12,43 +12,60 @@ from train_fake_detector import FakeProfileDetector
 app = Flask(__name__)
 CORS(app)
 
-# Load models when server starts
+# =========================
+# LOAD MODELS
+# =========================
 print("🔄 Loading ML models...")
-success_predictor = FreelancerSuccessPredictor()
-success_predictor.load_model('success_predictor.pkl')
 
-fake_detector = FakeProfileDetector()
-fake_detector.load_model('fake_detector.pkl')
-print("✅ Models loaded!\n")
+# 🔍 Debug: check files in directory
+print("FILES IN DIRECTORY:", os.listdir())
+
+try:
+    success_predictor = FreelancerSuccessPredictor()
+    success_model_path = os.path.join(os.getcwd(), 'success_predictor.pkl')
+    success_predictor.load_model(success_model_path)
+
+    fake_detector = FakeProfileDetector()
+    fake_model_path = os.path.join(os.getcwd(), 'fake_detector.pkl')
+    fake_detector.load_model(fake_model_path)
+
+    print("✅ Models loaded successfully!\n")
+
+except Exception as e:
+    print("❌ Error loading models:", str(e))
+    raise e
 
 
+# =========================
+# NORMALIZATION FUNCTION
+# =========================
 def normalize_parameters(params, model_type):
-    """
-    Normalize parameters from AI Gateway format to ML model format
-    """
     normalized = params.copy()
-    
+
     if model_type == "success_prediction":
         if 'completion_rate' in normalized and normalized['completion_rate'] > 1:
             normalized['completion_rate'] /= 100.0
-        
+
         if 'on_time_delivery_rate' in normalized and normalized['on_time_delivery_rate'] > 1:
             normalized['on_time_delivery_rate'] /= 100.0
-        
+
         if 'skill_match_score' in normalized and normalized['skill_match_score'] > 1:
             normalized['skill_match_score'] /= 100.0
-        
+
         if 'profile_completeness' in normalized and normalized['profile_completeness'] > 1:
             normalized['profile_completeness'] /= 100.0
-    
+
     elif model_type == "fake_profile_detection":
         if 'profile_completeness' in normalized and normalized['profile_completeness'] > 1:
             normalized['profile_completeness'] /= 100.0
-    
+
     return normalized
 
 
-# ✅ Health route
+# =========================
+# ROUTES
+# =========================
+
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({
@@ -59,35 +76,33 @@ def health_check():
     })
 
 
-# ✅ NEW: Root route (fix 404)
 @app.route('/')
 def home():
     return "ML API is running 🚀. Use /health or /api/ml/predict"
 
 
-# ✅ Main ML API
 @app.route('/api/ml/predict', methods=['POST'])
 def ml_predict():
     try:
         data = request.json
-        
+
         if not data or 'model' not in data or 'parameters' not in data:
             return jsonify({
                 'success': False,
                 'error': 'Invalid request format. Required: model, parameters'
             }), 400
-        
+
         model_type = data['model']
         parameters = data['parameters']
-        
+
         print(f"\n📥 Request: {model_type}")
         print(f"Parameters: {parameters}")
-        
+
         if model_type == "success_prediction":
             normalized_params = normalize_parameters(parameters, "success_prediction")
-            
+
             probability = success_predictor.predict_success_probability(normalized_params)
-            
+
             if probability >= 75:
                 recommendation = "High chance of success"
                 risk_level = "Low"
@@ -97,7 +112,7 @@ def ml_predict():
             else:
                 recommendation = "Low chance of success"
                 risk_level = "High"
-            
+
             return jsonify({
                 'success': True,
                 'model': 'success_prediction',
@@ -108,12 +123,12 @@ def ml_predict():
                 },
                 'input_parameters': normalized_params
             })
-        
+
         elif model_type == "fake_profile_detection":
             normalized_params = normalize_parameters(parameters, "fake_profile_detection")
-            
+
             result = fake_detector.detect_fake(normalized_params)
-            
+
             return jsonify({
                 'success': True,
                 'model': 'fake_profile_detection',
@@ -125,13 +140,13 @@ def ml_predict():
                 },
                 'input_parameters': normalized_params
             })
-        
+
         else:
             return jsonify({
                 'success': False,
                 'error': 'Unknown model type'
             }), 400
-    
+
     except Exception as e:
         print(f"❌ Error: {str(e)}")
         return jsonify({
@@ -140,15 +155,14 @@ def ml_predict():
         }), 500
 
 
-# ✅ Legacy endpoints
 @app.route('/api/predict-success', methods=['POST'])
 def predict_success():
     try:
         data = request.json
         normalized = normalize_parameters(data, "success_prediction")
-        
+
         probability = success_predictor.predict_success_probability(normalized)
-        
+
         if probability >= 75:
             recommendation = "High chance of success"
             emoji = "✅"
@@ -158,14 +172,14 @@ def predict_success():
         else:
             recommendation = "Low chance of success"
             emoji = "❌"
-        
+
         return jsonify({
             'success': True,
             'success_probability': probability,
             'recommendation': recommendation,
             'emoji': emoji
         })
-    
+
     except Exception as e:
         return jsonify({
             'success': False,
@@ -178,14 +192,14 @@ def detect_fake():
     try:
         data = request.json
         normalized = normalize_parameters(data, "fake_profile_detection")
-        
+
         result = fake_detector.detect_fake(normalized)
-        
+
         return jsonify({
             'success': True,
             **result
         })
-    
+
     except Exception as e:
         return jsonify({
             'success': False,
@@ -193,22 +207,12 @@ def detect_fake():
         }), 400
 
 
-# ✅ MAIN
+# =========================
+# MAIN ENTRY (Render compatible)
+# =========================
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🚀 Starting ML API Server (AI Gateway Compatible)")
+    print("🚀 Starting ML API Server (Render Ready)")
     print("="*60)
-    print("API running at: http://localhost:5000")
-    print("\nEndpoints:")
-    print("  GET  /")
-    print("  GET  /health")
-    print("  POST /api/ml/predict")
-    print("  POST /api/predict-success")
-    print("  POST /api/detect-fake")
-    print("\nPress CTRL+C to stop")
-    print("="*60 + "\n")
-    
-   
-   
-    if __name__ == '__main__':
-        app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
