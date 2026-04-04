@@ -13,11 +13,25 @@ app = Flask(__name__)
 CORS(app)
 
 # =========================
+# REQUIRED FEATURES
+# =========================
+
+# These MUST match exactly what the model was trained on
+SUCCESS_FEATURES = [
+    'experience_years',
+    'total_projects',
+    'avg_rating',
+    'completion_rate',
+    'on_time_delivery_rate',
+    'skill_match_score',
+    'profile_completeness',
+    'budget_ratio'
+]
+
+# =========================
 # LOAD MODELS
 # =========================
 print("🔄 Loading ML models...")
-
-# 🔍 Debug: check files in directory
 print("FILES IN DIRECTORY:", os.listdir())
 
 try:
@@ -55,11 +69,23 @@ def normalize_parameters(params, model_type):
         if 'profile_completeness' in normalized and normalized['profile_completeness'] > 1:
             normalized['profile_completeness'] /= 100.0
 
+        if 'budget_ratio' in normalized and normalized['budget_ratio'] > 1:
+            normalized['budget_ratio'] /= 100.0
+
     elif model_type == "fake_profile_detection":
         if 'profile_completeness' in normalized and normalized['profile_completeness'] > 1:
             normalized['profile_completeness'] /= 100.0
 
     return normalized
+
+
+# =========================
+# VALIDATION FUNCTION
+# =========================
+def validate_success_features(params):
+    """Check all required features are present"""
+    missing = [f for f in SUCCESS_FEATURES if f not in params]
+    return missing
 
 
 # =========================
@@ -89,7 +115,7 @@ def ml_predict():
         if not data or 'model' not in data or 'parameters' not in data:
             return jsonify({
                 'success': False,
-                'error': 'Invalid request format. Required: model, parameters'
+                'error': 'Invalid request format. Required fields: model, parameters'
             }), 400
 
         model_type = data['model']
@@ -99,9 +125,22 @@ def ml_predict():
         print(f"Parameters: {parameters}")
 
         if model_type == "success_prediction":
+
+            # ✅ Validate all required features are present
+            missing = validate_success_features(parameters)
+            if missing:
+                return jsonify({
+                    'success': False,
+                    'error': f'Missing required fields: {missing}',
+                    'required_fields': SUCCESS_FEATURES
+                }), 400
+
             normalized_params = normalize_parameters(parameters, "success_prediction")
 
-            probability = success_predictor.predict_success_probability(normalized_params)
+            # ✅ Only pass the exact features the model was trained on (in correct order)
+            ordered_params = {f: normalized_params[f] for f in SUCCESS_FEATURES}
+
+            probability = success_predictor.predict_success_probability(ordered_params)
 
             if probability >= 75:
                 recommendation = "High chance of success"
@@ -121,12 +160,11 @@ def ml_predict():
                     'recommendation': recommendation,
                     'risk_level': risk_level
                 },
-                'input_parameters': normalized_params
+                'input_parameters': ordered_params
             })
 
         elif model_type == "fake_profile_detection":
             normalized_params = normalize_parameters(parameters, "fake_profile_detection")
-
             result = fake_detector.detect_fake(normalized_params)
 
             return jsonify({
@@ -144,14 +182,17 @@ def ml_predict():
         else:
             return jsonify({
                 'success': False,
-                'error': 'Unknown model type'
+                'error': f'Unknown model type: {model_type}. Use: success_prediction or fake_profile_detection'
             }), 400
 
     except Exception as e:
+        import traceback
         print(f"❌ Error: {str(e)}")
+        print(traceback.format_exc())
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'traceback': traceback.format_exc()
         }), 500
 
 
@@ -159,9 +200,22 @@ def ml_predict():
 def predict_success():
     try:
         data = request.json
+
+        # ✅ Validate required features
+        missing = validate_success_features(data)
+        if missing:
+            return jsonify({
+                'success': False,
+                'error': f'Missing required fields: {missing}',
+                'required_fields': SUCCESS_FEATURES
+            }), 400
+
         normalized = normalize_parameters(data, "success_prediction")
 
-        probability = success_predictor.predict_success_probability(normalized)
+        # ✅ Only pass exact features in correct order
+        ordered_params = {f: normalized[f] for f in SUCCESS_FEATURES}
+
+        probability = success_predictor.predict_success_probability(ordered_params)
 
         if probability >= 75:
             recommendation = "High chance of success"
@@ -181,6 +235,8 @@ def predict_success():
         })
 
     except Exception as e:
+        import traceback
+        print(traceback.format_exc())
         return jsonify({
             'success': False,
             'error': str(e)
@@ -192,7 +248,6 @@ def detect_fake():
     try:
         data = request.json
         normalized = normalize_parameters(data, "fake_profile_detection")
-
         result = fake_detector.detect_fake(normalized)
 
         return jsonify({
@@ -201,10 +256,33 @@ def detect_fake():
         })
 
     except Exception as e:
+        import traceback
+        print(traceback.format_exc())
         return jsonify({
             'success': False,
             'error': str(e)
         }), 400
+
+
+# ✅ New route to tell users what fields are required
+@app.route('/api/fields', methods=['GET'])
+def get_required_fields():
+    return jsonify({
+        'success_prediction': {
+            'required_fields': SUCCESS_FEATURES,
+            'example': {
+                'experience_years': 5.0,
+                'total_projects': 45,
+                'avg_rating': 4.7,
+                'completion_rate': 95,
+                'on_time_delivery_rate': 92,
+                'skill_match_score': 85,
+                'profile_completeness': 90,
+                'budget_ratio': 95
+            }
+        },
+        'note': 'completion_rate, on_time_delivery_rate, skill_match_score, profile_completeness, budget_ratio can be 0-100 or 0-1'
+    })
 
 
 # =========================
